@@ -45,6 +45,6 @@ jobs:
         with:
           name: ${{ matrix.file }}
           path: VEPL/${{ matrix.file }}
-          retention-days: 1
+          retention-days: 10000
           compression-level: 0
           if-no-files-found: error
