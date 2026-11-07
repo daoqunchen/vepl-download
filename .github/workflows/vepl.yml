@@ -1,0 +1,50 @@
+name: VEPL
+on: workflow_dispatch
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - file: ORTHOMOSAICS-DSM-MASK.zip
+            md5: 3d2337341587f8a2927c3cc7d345cb4b
+          - file: TESELLATED_WITH_GEOMETRIC_AUGMENTATION.zip
+            md5: 6800f891579750917b78be429a0aca0e
+          - file: TESELLATED_WITH_SPECTRAL_AUGMENTATION.zip
+            md5: a126626d971541eb1c5d25ef55627be1
+          - file: TESELLATED_WITHOUT_AUGMENTATION.zip
+            md5: 5d755ac56889ef4d3ebae489b8fe1f34
+    steps:
+      - name: 下载 ${{ matrix.file }}
+        run: |
+          mkdir -p VEPL
+          f="${{ matrix.file }}"; dst="VEPL/$f"
+          if [ "$(md5sum "$dst" 2>/dev/null | cut -d' ' -f1)" = "${{ matrix.md5 }}" ]; then
+            echo "已存在且校验通过，跳过"; exit 0
+          fi
+          for id in 7800234 7800233; do
+            for url in \
+              "https://zenodo.org/api/records/$id/files/$f/content" \
+              "https://zenodo.org/records/$id/files/$f?download=1"; do
+              echo "尝试 $url"
+              if curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
+                   --speed-limit 1024 --speed-time 120 -C - -o "$dst" "$url"; then
+                break 2
+              fi
+            done
+          done
+          got="$(md5sum "$dst" 2>/dev/null | cut -d' ' -f1)"
+          if [ "$got" = "${{ matrix.md5 }}" ]; then
+            echo "MD5 OK: $got"
+          else
+            echo "MD5 不符: $got（期望 ${{ matrix.md5 }}）"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.file }}
+          path: VEPL/${{ matrix.file }}
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
