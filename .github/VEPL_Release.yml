@@ -1,0 +1,64 @@
+name: VEPL
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 创建公开 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view vepl-data --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+          gh release create vepl-data --repo "$GITHUB_REPOSITORY" \
+            --title "VEPL 数据集（Zenodo 7800234）" \
+            --notes "来源：Mateo Cano-Solis 等，VEPL Dataset, Data 2023, 8(8):128；Zenodo DOI 10.5281/zenodo.7800234；许可 CC BY 4.0。请核对各文件 MD5 后使用。"
+
+  fetch:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - file: ORTHOMOSAICS-DSM-MASK.zip
+            md5: 3d2337341587f8a2927c3cc7d345cb4b
+          - file: TESELLATED_WITH_GEOMETRIC_AUGMENTATION.zip
+            md5: 6800f891579750917b78be429a0aca0e
+          - file: TESELLATED_WITH_SPECTRAL_AUGMENTATION.zip
+            md5: a126626d971541eb1c5d25ef55627be1
+          - file: TESELLATED_WITHOUT_AUGMENTATION.zip
+            md5: 5d755ac56889ef4d3ebae489b8fe1f34
+    steps:
+      - name: 下载 ${{ matrix.file }}
+        run: |
+          mkdir -p VEPL
+          f="${{ matrix.file }}"; dst="VEPL/$f"
+          for id in 7800234 7800233; do
+            for url in \
+              "https://zenodo.org/api/records/$id/files/$f/content" \
+              "https://zenodo.org/records/$id/files/$f?download=1"; do
+              echo "尝试 $url"
+              if curl -fL --retry 5 --retry-all-errors --retry-delay 3 \
+                   --speed-limit 1024 --speed-time 120 -C - -o "$dst" "$url"; then
+                break 2
+              fi
+            done
+          done
+          echo "${{ matrix.md5 }}  $dst" | md5sum -c -
+
+      - name: 发布到 Release（超 2GiB 自动切片）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          f="${{ matrix.file }}"; d="VEPL/$f"
+          if [ "$(stat -c%s "$d")" -gt 2147483648 ]; then
+            split -b 1500m -d "$d" "$d.part-"
+            rm "$d"
+          fi
+          for p in VEPL/"$f" VEPL/"$f".part-*; do
+            [ -e "$p" ] && gh release upload vepl-data "$p" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          done
